@@ -275,6 +275,7 @@ func (d *DefaultDispatcher) Dispatch(ctx context.Context, destination net.Destin
 			if err == nil && d.shouldOverride(ctx, result, sniffingRequest, destination) {
 				domain := result.Domain()
 				errors.LogInfo(ctx, "sniffed domain: ", domain)
+				content.SetAttribute("sniffed_domain", domain)
 				destination.Address = net.ParseAddress(domain)
 				protocol := result.Protocol()
 				if resComp, ok := result.(SnifferResultComposite); ok {
@@ -329,6 +330,7 @@ func (d *DefaultDispatcher) DispatchLink(ctx context.Context, destination net.De
 		if err == nil && d.shouldOverride(ctx, result, sniffingRequest, destination) {
 			domain := result.Domain()
 			errors.LogInfo(ctx, "sniffed domain: ", domain)
+			content.SetAttribute("sniffed_domain", domain)
 			destination.Address = net.ParseAddress(domain)
 			protocol := result.Protocol()
 			if resComp, ok := result.(SnifferResultComposite); ok {
@@ -467,6 +469,22 @@ func (d *DefaultDispatcher) routedDispatch(ctx context.Context, link *transport.
 				accessMessage.Detour = inTag + " -> " + tag
 			} else {
 				accessMessage.Detour = inTag + " >> " + tag
+			}
+		}
+		// Replace IP with domain for dokodemo-door access log when domain is available
+		if inbound := session.InboundFromContext(ctx); inbound != nil && inbound.Name == "dokodemo-door" {
+			if content := session.ContentFromContext(ctx); content != nil {
+				if sniffedDomain := content.Attribute("sniffed_domain"); sniffedDomain != "" {
+					// Create consistent destination format like other proxies: tcp:domain:port
+					if dest, ok := accessMessage.To.(net.Destination); ok {
+						domainDest := net.Destination{
+							Network: dest.Network,
+							Address: net.DomainAddress(sniffedDomain),
+							Port:    dest.Port,
+						}
+						accessMessage.To = domainDest
+					}
+				}
 			}
 		}
 		log.Record(accessMessage)

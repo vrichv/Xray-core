@@ -77,6 +77,10 @@ func (c *VLessInboundConfig) Build() (proto.Message, error) {
 			return nil, errors.New(`VLESS clients: "encryption" should not be in inbound settings`)
 		}
 
+		if account.Reverse != nil && account.Reverse.Tag == "" {
+			return nil, errors.New(`VLESS clients: "tag" can't be empty for "reverse"`)
+		}
+
 		user.Account = serial.ToTypedMessage(account)
 		config.Clients[idx] = user
 	}
@@ -101,13 +105,13 @@ func (c *VLessInboundConfig) Build() (proto.Message, error) {
 		if err != nil {
 			return false
 		}
-		config.SecondsFrom = uint32(i)
-		if len(t) > 1 {
+		config.SecondsFrom = int64(i)
+		if len(t) == 2 {
 			i, err := strconv.Atoi(t[1])
 			if err != nil {
 				return false
 			}
-			config.SecondsTo = uint32(i)
+			config.SecondsTo = int64(i)
 		}
 		padding := 0
 		for _, r := range s[3:] {
@@ -199,37 +203,65 @@ type VLessOutboundVnext struct {
 }
 
 type VLessOutboundConfig struct {
-	Vnext []*VLessOutboundVnext `json:"vnext"`
+	Address    *Address              `json:"address"`
+	Port       uint16                `json:"port"`
+	Level      uint32                `json:"level"`
+	Email      string                `json:"email"`
+	Id         string                `json:"id"`
+	Flow       string                `json:"flow"`
+	Seed       string                `json:"seed"`
+	Encryption string                `json:"encryption"`
+	Reverse    *vless.Reverse        `json:"reverse"`
+	Vnext      []*VLessOutboundVnext `json:"vnext"`
 }
 
 // Build implements Buildable
 func (c *VLessOutboundConfig) Build() (proto.Message, error) {
 	config := new(outbound.Config)
-
-	if len(c.Vnext) != 1 {
-		return nil, errors.New(`VLESS settings: "vnext" should have one and only one member`)
+	if c.Address != nil {
+		c.Vnext = []*VLessOutboundVnext{
+			{
+				Address: c.Address,
+				Port:    c.Port,
+				Users:   []json.RawMessage{{}},
+			},
+		}
 	}
-	config.Vnext = make([]*protocol.ServerEndpoint, len(c.Vnext))
-	for idx, rec := range c.Vnext {
+	if len(c.Vnext) != 1 {
+		return nil, errors.New(`VLESS settings: "vnext" should have one and only one member. Multiple endpoints in "vnext" should use multiple VLESS outbounds and routing balancer instead`)
+	}
+	for _, rec := range c.Vnext {
 		if rec.Address == nil {
 			return nil, errors.New(`VLESS vnext: "address" is not set`)
 		}
 		if len(rec.Users) != 1 {
-			return nil, errors.New(`VLESS vnext: "users" should have one and only one member`)
+			return nil, errors.New(`VLESS vnext: "users" should have one and only one member. Multiple members in "users" should use multiple VLESS outbounds and routing balancer instead`)
 		}
 		spec := &protocol.ServerEndpoint{
 			Address: rec.Address.Build(),
 			Port:    uint32(rec.Port),
-			User:    make([]*protocol.User, len(rec.Users)),
 		}
-		for idx, rawUser := range rec.Users {
+		for _, rawUser := range rec.Users {
 			user := new(protocol.User)
-			if err := json.Unmarshal(rawUser, user); err != nil {
-				return nil, errors.New(`VLESS users: invalid user`).Base(err)
+			if c.Address != nil {
+				user.Level = c.Level
+				user.Email = c.Email
+			} else {
+				if err := json.Unmarshal(rawUser, user); err != nil {
+					return nil, errors.New(`VLESS users: invalid user`).Base(err)
+				}
 			}
 			account := new(vless.Account)
-			if err := json.Unmarshal(rawUser, account); err != nil {
-				return nil, errors.New(`VLESS users: invalid user`).Base(err)
+			if c.Address != nil {
+				account.Id = c.Id
+				account.Flow = c.Flow
+				//account.Seed = c.Seed
+				account.Encryption = c.Encryption
+				account.Reverse = c.Reverse
+			} else {
+				if err := json.Unmarshal(rawUser, account); err != nil {
+					return nil, errors.New(`VLESS users: invalid user`).Base(err)
+				}
 			}
 
 			u, err := uuid.ParseString(account.Id)
@@ -288,10 +320,16 @@ func (c *VLessOutboundConfig) Build() (proto.Message, error) {
 				return nil, errors.New(`VLESS users: unsupported "encryption": ` + account.Encryption)
 			}
 
+			if account.Reverse != nil && account.Reverse.Tag == "" {
+				return nil, errors.New(`VLESS clients: "tag" can't be empty for "reverse"`)
+			}
+
 			user.Account = serial.ToTypedMessage(account)
-			spec.User[idx] = user
+			spec.User = user
+			break
 		}
-		config.Vnext[idx] = spec
+		config.Vnext = spec
+		break
 	}
 
 	return config, nil

@@ -5,7 +5,6 @@ import (
 
 	"github.com/xtls/xray-core/common/bitmask"
 	"github.com/xtls/xray-core/common/net"
-	"github.com/xtls/xray-core/common/uuid"
 	"golang.org/x/sys/cpu"
 )
 
@@ -16,11 +15,12 @@ const (
 	RequestCommandTCP = RequestCommand(0x01)
 	RequestCommandUDP = RequestCommand(0x02)
 	RequestCommandMux = RequestCommand(0x03)
+	RequestCommandRvs = RequestCommand(0x04)
 )
 
 func (c RequestCommand) TransferType() TransferType {
 	switch c {
-	case RequestCommandTCP, RequestCommandMux:
+	case RequestCommandTCP, RequestCommandMux, RequestCommandRvs:
 		return TransferTypeStream
 	case RequestCommandUDP:
 		return TransferTypePacket
@@ -68,14 +68,6 @@ type ResponseCommand interface{}
 type ResponseHeader struct {
 	Option  bitmask.Byte
 	Command ResponseCommand
-}
-
-type CommandSwitchAccount struct {
-	Host     net.Address
-	Port     net.Port
-	ID       uuid.UUID
-	Level    uint32
-	ValidMin byte
 }
 
 var (

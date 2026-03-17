@@ -34,6 +34,7 @@ type VLessInboundConfig struct {
 	Decryption string                  `json:"decryption"`
 	Fallbacks  []*VLessInboundFallback `json:"fallbacks"`
 	Flow       string                  `json:"flow"`
+	Testseed   []uint32                `json:"testseed"`
 }
 
 // Build implements Buildable
@@ -41,9 +42,7 @@ func (c *VLessInboundConfig) Build() (proto.Message, error) {
 	config := new(inbound.Config)
 	config.Clients = make([]*protocol.User, len(c.Clients))
 	switch c.Flow {
-	case vless.None:
-		c.Flow = ""
-	case "", vless.XRV:
+	case vless.XRV, "":
 	default:
 		return nil, errors.New(`VLESS "settings.flow" doesn't support "` + c.Flow + `" in this version`)
 	}
@@ -66,11 +65,13 @@ func (c *VLessInboundConfig) Build() (proto.Message, error) {
 		switch account.Flow {
 		case "":
 			account.Flow = c.Flow
-		case vless.None:
-			account.Flow = ""
 		case vless.XRV:
 		default:
 			return nil, errors.New(`VLESS clients: "flow" doesn't support "` + account.Flow + `" in this version`)
+		}
+
+		if len(account.Testseed) < 4 {
+			account.Testseed = c.Testseed
 		}
 
 		if account.Encryption != "" {
@@ -212,6 +213,8 @@ type VLessOutboundConfig struct {
 	Seed       string                `json:"seed"`
 	Encryption string                `json:"encryption"`
 	Reverse    *vless.Reverse        `json:"reverse"`
+	Testpre    uint32                `json:"testpre"`
+	Testseed   []uint32              `json:"testseed"`
 	Vnext      []*VLessOutboundVnext `json:"vnext"`
 }
 
@@ -258,6 +261,8 @@ func (c *VLessOutboundConfig) Build() (proto.Message, error) {
 				//account.Seed = c.Seed
 				account.Encryption = c.Encryption
 				account.Reverse = c.Reverse
+				account.Testpre = c.Testpre
+				account.Testseed = c.Testseed
 			} else {
 				if err := json.Unmarshal(rawUser, account); err != nil {
 					return nil, errors.New(`VLESS users: invalid user`).Base(err)
@@ -271,7 +276,8 @@ func (c *VLessOutboundConfig) Build() (proto.Message, error) {
 			account.Id = u.String()
 
 			switch account.Flow {
-			case "", vless.XRV, vless.XRV + "-udp443":
+			case "":
+			case vless.XRV, vless.XRV + "-udp443":
 			default:
 				return nil, errors.New(`VLESS users: "flow" doesn't support "` + account.Flow + `" in this version`)
 			}
